@@ -37,20 +37,21 @@ def setup_seed(seed):
 setup_seed(20)
 
 parser = argparse.ArgumentParser(description="Training ViT for Shadow Removal")
-parser.add_argument('--experiment_name', type=str, default="temp")
+parser.add_argument('--experiment_name', type=str, default="vit-512")
 parser.add_argument('--training_path', type=str, default='../data/Kligler/train')
-parser.add_argument('--max_iter', type=int, default=10000)
-parser.add_argument('--img_size', type=str, default="256", help="Initial crop size as H,W or single value")
-parser.add_argument('--BATCH_SIZE', type=int, default=16, help="Initial batch size")
+parser.add_argument('--max_iter', type=int, default=100000)
+parser.add_argument('--img_size', type=str, default="512", help="Initial crop size as H,W or single value")
+parser.add_argument('--BATCH_SIZE', type=int, default=1, help="Initial batch size")
 parser.add_argument('--learning_rate', type=float, default=0.0004)
 parser.add_argument('--print_frequency', type=int, default=50)
 parser.add_argument('--base_loss', type=str, default='wegithedchar', help="wegithedchar or char")
 parser.add_argument('--fft_loss_weight', type=float, default=0.1, help="Weight for FFT loss")
 parser.add_argument('--grid_type', type=str, default="4x4", help="Grid type for dynamic splitting")
-parser.add_argument('--val_interval', type=int, default=1000, help="Interval for validation")
+parser.add_argument('--val_interval', type=int, default=5000, help="Interval for validation")
 parser.add_argument('--checkpoint_path', type=str, help="checkpoints", default=None)
 parser.add_argument('--resume_iter', type=int, default=0, help="Iteration from which to resume training")
-parser.add_argument('--shadow_matte_path', type=str, default="./checkpoints/UNet/image_256/epoch180.pth", help="Path to the shadow matte model weights")
+parser.add_argument('--shadow_matte_path', type=str, default="./checkpoints/UNet/image_512/epoch180.pth", help="Path to the shadow matte model weights")
+parser.add_argument('--accumulation_steps', type=int, default=8, help="Number of steps to accumulate gradients before updating weights")
 args = parser.parse_args()
 
 print_args_parameters(args)
@@ -103,16 +104,31 @@ scheduler = CosineAnnealingLR(optimizer, T_max=args.max_iter, eta_min=8e-5)
 base_loss = losses.weighted_charbonnier_loss if args.base_loss.lower() == 'weightedchar' else losses.CharbonnierLoss()
 fft_loss_fn = losses.fftLoss()
 
+optimizer.zero_grad()
 global_iter = 0
 
 if args.checkpoint_path and os.path.exists(args.checkpoint_path):
     checkpoint = torch.load(args.checkpoint_path, map_location=device)
-    net.load_state_dict(checkpoint)
-    global_iter = args.resume_iter
+    
+    if 'model_state_dict' in checkpoint:
+        net.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        net.load_state_dict(checkpoint)
+    
+    if 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    if 'scheduler_state_dict' in checkpoint and scheduler:
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    
+    if 'iter' in checkpoint:
+        global_iter = checkpoint['iter']
+    else:
+        global_iter = args.resume_iter
+    
     print(f"Checkpoint loaded from {args.checkpoint_path}, resuming from iteration {global_iter}")
     logging.info(f"Checkpoint loaded from {args.checkpoint_path}, resuming from iteration {global_iter}")
-else:
-    print("No checkpoint loaded. Starting training from scratch.")
+
 
 max_iter = args.max_iter
 train_iter = iter(train_loader)
@@ -140,8 +156,17 @@ for _ in pbar:
     loss_char = base_loss(outputs, labels)
     loss_fft = fft_loss_fn(outputs, labels)
     loss = loss_char + args.fft_loss_weight * loss_fft
+
+    loss = loss / args.accumulation_steps
     loss.backward()
-    optimizer.step()
+    
+    if (global_iter + 1) % args.accumulation_steps == 0:
+        optimizer.step()
+        optimizer.zero_grad()
+
+        if scheduler is not None:
+            scheduler.step()
+
     global_iter += 1
 
     if global_iter % args.print_frequency == 0:
@@ -203,9 +228,6 @@ for _ in pbar:
         }, checkpoint_path)
         print(f"Checkpoint saved at iteration {global_iter}")
         logging.info(f"Checkpoint saved at iteration {global_iter}")
-
-    if scheduler is not None:
-        scheduler.step()
 
 torch.save(net.state_dict(), os.path.join(SAVE_PATH, "vit_last.pth"))
 print("Training complete: ViT model saved.")
