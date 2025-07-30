@@ -106,7 +106,7 @@ class UNet(nn.Module):
         logits = self.outc(x)
         return logits
 
-
+# shadow matte generator
 class ShadowMattePredictor:
     def __init__(self, model_path, device=None, img_size=256):
 
