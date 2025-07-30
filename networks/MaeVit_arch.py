@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from networks.vit import Block
 from networks.Patch_embed import PatchEmbed
-from networks.FProLite import FProLiteBlock
+from networks.hfam import HFAM
 
 
 class PyramidPooling(nn.Module):
@@ -43,7 +43,7 @@ class PyramidPooling(nn.Module):
 
 
 class MaskedAutoencoderViT(nn.Module):
-    """MatteViT backbone with a single FPro‑Lite block to amplify HF details."""
+    """MatteViT backbone with an HFAM to amplify HF details."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.global_residual = global_residual
 
         self.patch_embed = PatchEmbed(patch_size, in_chans, embed_dim)
-        self.fpro        = FProLiteBlock(embed_dim)
+        self.hfam        = HFAM(embed_dim)
 
         self.blocks = nn.ModuleList([
             Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
@@ -119,7 +119,7 @@ class MaskedAutoencoderViT(nn.Module):
 
     def forward_encoder(self, imgs):
         feat = self.patch_embed.proj(imgs)
-        feat = self.fpro(feat)  # HF amplification
+        feat = self.hfam(feat)  # HF amplification
 
         x = feat.flatten(2).transpose(1, 2)
         for blk in self.blocks:

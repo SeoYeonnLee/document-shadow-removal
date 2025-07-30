@@ -1,6 +1,6 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 
-class FProLiteBlock(nn.Module):
+class HFAM(nn.Module):
     def __init__(self, dim: int, reduction: int = 16, init_gauss=True):
         super().__init__()
         self.k_lp = nn.Conv2d(dim, dim, 5, 1, 2, groups=dim, bias=False)

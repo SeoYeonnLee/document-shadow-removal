@@ -25,6 +25,7 @@ def get_high_freq_weight_map(target, device, kernel_size=3, padding=1):
     weight_map = (weight_map - weight_map.min()) / (weight_map.max() - weight_map.min() + 1e-8)
     return weight_map
 
+# edge-aware charbonnier loss
 def weighted_charbonnier_loss(output, target, epsilon=1e-3):
     device = output.device
     weight_map = get_high_freq_weight_map(target, device)
@@ -343,13 +344,13 @@ class EdgeLoss(nn.Module):
 
         return loss
 
+# fft loss
 class fftLoss(nn.Module):
     def __init__(self):
         super(fftLoss, self).__init__()
 
     def forward(self, x, y):
         diff = torch.fft.fft2(x.to('cuda:0')) - torch.fft.fft2(y.to('cuda:0'))
-        # diff = torch.fft.fft2(x) - torch.fft.fft2(y)
         loss = torch.mean(abs(diff))
         return loss
 

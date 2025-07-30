@@ -79,6 +79,7 @@ def get_dataloaders(img_size):
 
 train_loader, val_loader = get_dataloaders(current_img_size)
 
+# shadow matte generator
 matte_predictor = ShadowMattePredictor(
     model_path=args.shadow_matte_path,
     img_size=int(args.img_size) if isinstance(args.img_size, str) and not ',' in args.img_size else 256,
@@ -109,7 +110,6 @@ for param_group in optimizer.param_groups:
     param_group['lr'] = args.learning_rate
 scheduler = CosineAnnealingLR(optimizer, T_max=args.max_iter, eta_min=8e-5)
 
-# base_loss = losses.CharbonnierLoss()
 base_loss = losses.weighted_charbonnier_loss if args.base_loss.lower() == 'weightedchar' else losses.CharbonnierLoss()
 fft_loss_fn = losses.fftLoss()
 
@@ -140,11 +140,12 @@ for _ in pbar:
     inputs = data_in.to(device)
     labels = label.to(device)
 
+    # shadow matte generation
     with torch.no_grad():
         shadow_matte = matte_predictor.predict(inputs, is_tensor=True) 
         shadow_matte = shadow_matte.to(device)
 
-    combined_input = torch.cat([inputs, shadow_matte], dim=1) 
+    combined_input = torch.cat([inputs, shadow_matte], dim=1) # shadow matte guidance
 
     outputs = net(combined_input)
     loss_char = base_loss(outputs, labels)
